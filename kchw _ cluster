@@ -1,0 +1,151 @@
+#### 변수 최적화
+
+from sklearn.ensemble import RandomForestClassifier
+import matplotlib.pyplot as plt
+import numpy as np
+
+rf_model = RandomForestClassifier(n_estimators=100, random_state=2024)
+rf_model.fit(train, target)
+
+# 2. 변수 중요도 추출
+importances = rf_model.feature_importances_
+indices = np.argsort(importances)[::-1]
+features = train.columns
+
+plt.figure(figsize=(12, 6))
+plt.title('Feature Importances')
+plt.bar(range(train.shape[1]), importances[indices], align='center')
+plt.xticks(range(train.shape[1]), features[indices], rotation=90)
+plt.tight_layout()
+plt.show()
+
+for i in range(len(features)):
+    print(f"{i + 1}. {features[indices[i]]} ({importances[indices[i]]:.4f})")
+
+
+-----------------------------------------------------------------------------------------
+
+## 모델링
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN, MeanShift, SpectralClustering, AffinityPropagation
+from sklearn.mixture import GaussianMixture
+from sklearn.cluster import Birch, OPTICS
+from hdbscan import HDBSCAN
+from fcmeans import FCM
+from minisom import MiniSom
+import matplotlib.pyplot as plt
+
+optimal_clusters = 3
+
+# 모델 리스트
+models = {
+    'KMeans': KMeans(n_clusters=optimal_clusters, n_init=10, random_state=2024),
+    'Hierarchical': AgglomerativeClustering(n_clusters=optimal_clusters),
+    'DBSCAN': DBSCAN(eps=0.5, min_samples=5),  # DBSCAN은 군집 수를 지정하지 않음
+    'MeanShift': MeanShift(),  # MeanShift는 군집 수를 지정하지 않음
+    'GMM': GaussianMixture(n_components=optimal_clusters, random_state=2024),
+    'SpectralClustering': SpectralClustering(n_clusters=optimal_clusters, random_state=2024),
+    'OPTICS': OPTICS(min_samples=5),  # OPTICS는 군집 수를 지정하지 않음
+    'BIRCH': Birch(n_clusters=optimal_clusters),
+    'AffinityPropagation': AffinityPropagation(random_state=2024),  # AffinityPropagation은 군집 수를 지정하지 않음
+    'HDBSCAN': HDBSCAN(min_cluster_size=5),  # HDBSCAN은 군집 수를 지정하지 않음
+    'FCM': FCM(n_clusters=optimal_clusters),
+    'SOM': MiniSom(optimal_clusters, 1, train.shape[1], sigma=0.3, learning_rate=0.5)  # train 데이터의 열 개수 사용
+}
+
+# 실루엣 스코어 저장용 딕셔너리
+silhouette_scores = {}
+
+# 희소 행렬을 밀집 배열로 변환 (train 데이터를 사용)
+X_dense = train.to_numpy()
+
+for model_name, model in models.items():
+    try:
+        if model_name == 'GMM':
+            model.fit(X_dense)
+            labels = model.predict(X_dense)
+        elif model_name == 'FCM':
+            model.fit(X_dense)
+            labels = model.predict(X_dense)
+        elif model_name == 'SOM':
+            model.train_random(X_dense, 100)
+            labels = np.array([model.winner(x)[0] for x in X_dense])
+        else:
+            model.fit(X_dense)
+            labels = model.labels_
+
+        # DBSCAN과 OPTICS의 경우, 모든 데이터 포인트가 군집에 포함되지 않을 수 있으므로, 실루엣 점수 계산 시 주의 필요
+        if len(set(labels)) > 1:
+            score = silhouette_score(X_dense, labels)
+        else:
+            score = -1  # 군집이 1개 이하인 경우 실루엣 점수를 -1로 설정
+    except Exception as e:
+        score = -1
+        print(f"Error in {model_name}: {e}")
+
+    silhouette_scores[model_name] = score
+
+for model_name, score in silhouette_scores.items():
+    print(f'{model_name}: {score}')
+
+plt.figure(figsize=(10, 8))
+plt.barh(list(silhouette_scores.keys()), list(silhouette_scores.values()), color='skyblue')
+plt.xlabel('Silhouette Score')
+plt.title('Silhouette Score by Clustering Algorithm')
+plt.show()
+
+----------------------------------
+
+## 차원축소
+
+from sklearn.decomposition import PCA
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+# PCA를 사용하여 차원 축소 (3차원)
+pca = PCA(n_components=3)
+train_pca = pca.fit_transform(train)
+
+# Hierarchical Clustering 모델 설정 및 학습
+hierarchical_model = AgglomerativeClustering(n_clusters=3)
+hierarchical_labels = hierarchical_model.fit_predict(train_pca)
+
+# 레이블을 데이터프레임에 추가
+train['Hierarchical_Labels'] = hierarchical_labels
+
+# 레이블 카운트 확인
+label_counts = train['Hierarchical_Labels'].value_counts()
+print("Hierarchical Clustering 레이블 카운트:\n", label_counts)
+
+# 실루엣 스코어 계산
+silhouette_avg = silhouette_score(train_pca, hierarchical_labels)
+print(f"실루엣 스코어 (Hierarchical Clustering): {silhouette_avg}")
+
+# 차원 축소된 데이터 3D 시각화
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+# 각 데이터 포인트를 플롯
+scatter = ax.scatter(train_pca[:, 0], train_pca[:, 1], train_pca[:, 2], c=hierarchical_labels, cmap='viridis')
+
+# 색상 바 추가
+legend1 = ax.legend(*scatter.legend_elements(), title="Clusters")
+ax.add_artist(legend1)
+
+ax.set_title('Hierarchical Clustering after PCA')
+ax.set_xlabel('PCA Component 1')
+ax.set_ylabel('PCA Component 2')
+ax.set_zlabel('PCA Component 3')
+
+plt.show()
+
+
+# tsne, umap, isomap, lle, mds차원축소 추가
+
+------------------------
